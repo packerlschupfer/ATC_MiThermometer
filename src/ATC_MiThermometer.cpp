@@ -59,7 +59,7 @@
  */
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice* advertisedDevice) {
-    log_d("Advertised Device: %s", advertisedDevice->toString().c_str());
+    LOG_ATC("Advertised Device: %s", advertisedDevice->toString().c_str());
     /*
      * Here we add the device scanned to the whitelist based on service data but any
      * advertised data can be used for your preffered data.
@@ -67,7 +67,7 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     if (advertisedDevice->haveServiceData()) {
       /* If this is a device with data we want to capture, add it to the whitelist */
       if (advertisedDevice->getServiceData(NimBLEUUID("181A")) != "") {
-        log_d("Adding %s to whitelist", std::string(advertisedDevice->getAddress()).c_str());
+        LOG_ATC("Adding %s to whitelist", std::string(advertisedDevice->getAddress()).c_str());
         NimBLEDevice::whiteListAdd(advertisedDevice->getAddress());
       }
     }
@@ -92,31 +92,31 @@ void ATC_MiThermometer::begin(bool activeScan)
 unsigned ATC_MiThermometer::getData(uint32_t duration) {
     BLEScanResults foundDevices = _pBLEScan->start(duration, false /* is_continue */);
   
-    log_d("Whitelist contains:");
+    LOG_ATC("Whitelist contains:");
     for (auto i=0; i<NimBLEDevice::getWhiteListCount(); ++i) {
-        log_d("%s", NimBLEDevice::getWhiteListAddress(i).toString().c_str());
+        LOG_ATC("%s", NimBLEDevice::getWhiteListAddress(i).toString().c_str());
     }
   
-    log_d("Assigning scan results...");
+    LOG_ATC("Assigning scan results...");
     for (unsigned i=0; i<foundDevices.getCount(); i++) {
-        log_d("haveName(): %d", foundDevices.getDevice(i).haveName());
-        log_d("getName(): %s", foundDevices.getDevice(i).getName().c_str());
+        LOG_ATC("haveName(): %d", foundDevices.getDevice(i).haveName());
+        LOG_ATC("getName(): %s", foundDevices.getDevice(i).getName().c_str());
         
         // Match all devices found against list of known sensors
         for (unsigned n = 0; n < _known_sensors.size(); n++) {
-            log_d("Found: %s  comparing to: %s", 
+            LOG_ATC("Found: %s  comparing to: %s", 
                   foundDevices.getDevice(i).getAddress().toString().c_str(), 
                   BLEAddress(_known_sensors[n]).toString().c_str());
             if (foundDevices.getDevice(i).getAddress() == BLEAddress(_known_sensors[n])) {
-                log_d(" -> Match! Index: %d", n);
+                LOG_ATC(" -> Match! Index: %d", n);
                 data[n].valid = true;
                 
                 int len = foundDevices.getDevice(i).getServiceData().length();
-                log_d("Length of ServiceData: %d", len);
+                LOG_ATC("Length of ServiceData: %d", len);
                 
                 data[n].name = foundDevices.getDevice(i).getName();
                 if (len == 15) {
-                    log_d("Custom format");
+                    LOG_ATC("Custom format");
                     // Temperature
                     int temp_msb = foundDevices.getDevice(i).getServiceData().c_str()[7];
                     int temp_lsb = foundDevices.getDevice(i).getServiceData().c_str()[6];
@@ -148,7 +148,7 @@ unsigned ATC_MiThermometer::getData(uint32_t duration) {
                   
                 }
                 else if (len == 13) {
-                    log_d("ATC1441 format");
+                    LOG_ATC("ATC1441 format");
                     
                     // Temperature
                     int temp_lsb = foundDevices.getDevice(i).getServiceData().c_str()[7];
@@ -168,13 +168,13 @@ unsigned ATC_MiThermometer::getData(uint32_t duration) {
                     // Battery state [%]
                     data[n].batt_level = foundDevices.getDevice(i).getServiceData().c_str()[9];
                 } else {
-                    log_d("Unknown ServiceData format");
+                    LOG_ATC("Unknown ServiceData format");
                 }
                 
                 // Received Signal Strength Indicator [dBm]
                 data[n].rssi = foundDevices.getDevice(i).getRSSI();
             } else {
-                log_d();
+                LOG_ATC();
             }
         }
     }
