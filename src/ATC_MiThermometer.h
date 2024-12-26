@@ -52,6 +52,12 @@
 #ifndef ATC_MiThermometer_h
 #define ATC_MiThermometer_h
 
+#ifdef ATC_MITHERMOMETER_DEBUG
+#define LOG_ATC(fmt, ...) log_d("[ATC_MiThermometer] " fmt, ##__VA_ARGS__)
+#else
+#define LOG_ATC(fmt, ...) ((void)0) // No-op if debugging is disabled
+#endif
+
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <string>

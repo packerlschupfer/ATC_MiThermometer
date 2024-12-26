@@ -24,7 +24,7 @@
 // to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-//
+// 
 // The above copyright notice and this permission notice shall be included in all
 // copies or substantial portions of the Software.
 //
@@ -95,11 +95,10 @@ void ATC_MiThermometer::begin(bool activeScan)
     NimBLEDevice::init("ble-scan");
     _pBLEScan = NimBLEDevice::getScan();  // create new scan
     _pBLEScan->setScanCallbacks(&scanCallbacks);
-    _pBLEScan->setActiveScan(activeScan);
+    _pBLEScan->setActiveScan(activeScan); //active scan uses more power, but get results faster
     _pBLEScan->setFilterPolicy(BLE_HCI_SCAN_FILT_NO_WL);
     _pBLEScan->setInterval(100);
-    _pBLEScan->setWindow(99);
-
+    _pBLEScan->setWindow(99);  // less or equal setInterval value
 }
 
 // Get sensor data by running BLE device scan
@@ -109,36 +108,35 @@ unsigned ATC_MiThermometer::getData(uint32_t scanTime)
     // Blocks until all known devices are found or scanTime is expired
     BLEScanResults foundDevices = _pBLEScan->getResults(scanTime * 1000, false);
 
-    log_d("Whitelist contains:");
+    LOG_ATC("Whitelist contains:");
     for (auto i = 0; i < NimBLEDevice::getWhiteListCount(); ++i)
     {
-        log_d("%s", NimBLEDevice::getWhiteListAddress(i).toString().c_str());
+        LOG_ATC("%s", NimBLEDevice::getWhiteListAddress(i).toString().c_str());
     }
-
-    log_d("Assigning scan results...");
-    for (unsigned i = 0; i < foundDevices.getCount(); i++)
-    {
-        log_d("haveName(): %d", foundDevices.getDevice(i)->haveName());
-        log_d("getName(): %s", foundDevices.getDevice(i)->getName().c_str());
-
+  
+    LOG_ATC("Assigning scan results...");
+    for (unsigned i=0; i<foundDevices.getCount(); i++) {
+        LOG_ATC("haveName(): %d", foundDevices.getDevice(i).haveName());
+        LOG_ATC("getName(): %s", foundDevices.getDevice(i).getName().c_str());
+        
         // Match all devices found against list of known sensors
         for (unsigned n = 0; n < _known_sensors.size(); n++)
         {
-            log_d("Found: %s  comparing to: %s",
+            LOG_ATC("Found: %s  comparing to: %s",
                   foundDevices.getDevice(i)->getAddress().toString().c_str(),
                   _known_sensors[n].c_str());
             if (foundDevices.getDevice(i)->getAddress().toString() == _known_sensors[n])
             {
-                log_d(" -> Match! Index: %d", n);
+                LOG_ATC(" -> Match! Index: %d", n);
                 data[n].valid = true;
-
+                
                 int len = foundDevices.getDevice(i)->getServiceData().length();
-                log_d("Length of ServiceData: %d", len);
-
+                LOG_ATC("Length of ServiceData: %d", len);
+ 
                 data[n].name = foundDevices.getDevice(i)->getName();
                 if (len == 15)
                 {
-                    log_d("Custom format");
+                    LOG_ATC("Custom format");
                     // Temperature
                     int temp_msb = foundDevices.getDevice(i)->getServiceData().c_str()[7];
                     int temp_lsb = foundDevices.getDevice(i)->getServiceData().c_str()[6];
@@ -170,7 +168,7 @@ unsigned ATC_MiThermometer::getData(uint32_t scanTime)
                 }
                 else if (len == 13)
                 {
-                    log_d("ATC1441 format");
+                    LOG_ATC("ATC1441 format");
 
                     // Temperature
                     int temp_lsb = foundDevices.getDevice(i)->getServiceData().c_str()[7];
@@ -192,7 +190,7 @@ unsigned ATC_MiThermometer::getData(uint32_t scanTime)
                 }
                 else
                 {
-                    log_d("Unknown ServiceData format");
+                    LOG_ATC("Unknown ServiceData format");
                 }
 
                 // Received Signal Strength Indicator [dBm]
@@ -200,7 +198,7 @@ unsigned ATC_MiThermometer::getData(uint32_t scanTime)
             }
             else
             {
-                log_d();
+                LOG_ATC();
             }
         }
     }
