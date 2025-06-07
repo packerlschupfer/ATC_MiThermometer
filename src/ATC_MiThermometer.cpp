@@ -200,9 +200,10 @@ public:
                     }
                 }
                 
-                uint32_t processingDelay = resultTime - dt.discoveryTime;
+                #ifdef ATC_MITHERMOMETER_DEBUG
                 LOG_ATC("RESULT for %s - Processing delay: %u ms, Count: %u, RSSI: %d dBm", 
-                        addr.c_str(), processingDelay, dt.count, dt.rssi);
+                                        addr.c_str(), resultTime - dt.discoveryTime, dt.count, dt.rssi);
+                #endif
                 break;
             }
         }
@@ -223,8 +224,9 @@ public:
 
     void onScanEnd(const NimBLEScanResults &results, int reason) override
     {
-        uint32_t endTime = millis();
-        LOG_ATC("Scan ended at %u ms; reason = %d", endTime, reason);
+        #ifdef ATC_MITHERMOMETER_DEBUG
+        LOG_ATC("Scan ended at %u ms; reason = %d", millis(), reason);
+        #endif
         
         // Log timing summary
         #if CONFIG_NIMBLE_CPP_ATT_VALUE_HRTIMESTAMP_ENABLED
@@ -278,8 +280,9 @@ public:
                 
                 // Only count intervals > 1 second (new beacons)
                 if (interval > 1000000) {
-                    double intervalMs = interval / 1000.0;
-                    LOG_ATC("  Interval %zu: %.2f ms", i, intervalMs);
+                    #ifdef ATC_MITHERMOMETER_DEBUG
+                    LOG_ATC("  Interval %zu: %.2f ms", i, interval / 1000.0);
+                    #endif
                     
                     sumIntervals += interval;
                     minInterval = std::min(minInterval, interval);
@@ -289,13 +292,10 @@ public:
             }
             
             if (intervalCount > 0) {
-                double avgInterval = (sumIntervals / intervalCount) / 1000.0;
-                double jitter = (maxInterval - minInterval) / 1000.0;
-                
-                LOG_ATC("  Average interval: %.2f ms (expected: 2500 ms)", avgInterval);
+                LOG_ATC("  Average interval: %.2f ms (expected: 2500 ms)", (sumIntervals / intervalCount) / 1000.0);
                 LOG_ATC("  Min: %.2f ms, Max: %.2f ms", minInterval / 1000.0, maxInterval / 1000.0);
-                LOG_ATC("  Jitter: %.2f ms", jitter);
-                LOG_ATC("  Accuracy: %.1f%%", (avgInterval / 2500.0) * 100.0);
+                LOG_ATC("  Jitter: %.2f ms", (maxInterval - minInterval) / 1000.0);
+                LOG_ATC("  Accuracy: %.1f%%", ((sumIntervals / intervalCount) / 1000.0 / 2500.0) * 100.0);
             }
         }
     }
@@ -407,54 +407,47 @@ void ATC_MiThermometer::beginFiltered(bool activeScan, bool useWhitelist, Addres
                     }
                     break;
             }
-            
+
             // Log results based on address type configuration
             if (addedRandom || addedPublic) {
                 devicesAdded++;
-                const char* typeStr = "";
-                switch (_addressType) {
-                    case AddressType::AUTO_DETECT:
-                    case AddressType::BOTH_TYPES:
-                        if (addedRandom && addedPublic) {
-                            typeStr = "both types";
-                        } else if (addedRandom) {
-                            typeStr = "random type detected";
-                        } else {
-                            typeStr = "public type detected";
-                        }
-                        break;
-                    case AddressType::RANDOM_ONLY:
-                        typeStr = "random only";
-                        break;
-                    case AddressType::PUBLIC_ONLY:
-                        typeStr = "public only";
-                        break;
+                #ifdef ATC_MITHERMOMETER_DEBUG
+                if (addedRandom && addedPublic) {
+                    log_i("Added %s to whitelist (both types)", sensorAddr.c_str());
+                } else if (addedRandom) {
+                    log_i("Added %s to whitelist (random type detected)", sensorAddr.c_str());
+                } else {
+                    log_i("Added %s to whitelist (public type detected)", sensorAddr.c_str());
                 }
-                log_i("Added %s to whitelist (%s)", sensorAddr.c_str(), typeStr);
+                #else
+                log_i("Added %s to whitelist", sensorAddr.c_str());
+                #endif
             } else {
-                const char* typeStr = "";
+                #ifdef ATC_MITHERMOMETER_DEBUG
                 switch (_addressType) {
                     case AddressType::AUTO_DETECT:
                     case AddressType::BOTH_TYPES:
-                        typeStr = "neither type";
+                        log_e("Failed to add %s to whitelist with neither type", sensorAddr.c_str());
                         break;
                     case AddressType::RANDOM_ONLY:
-                        typeStr = "random type";
+                        log_e("Failed to add %s to whitelist with random type", sensorAddr.c_str());
                         break;
                     case AddressType::PUBLIC_ONLY:
-                        typeStr = "public type";
+                        log_e("Failed to add %s to whitelist with public type", sensorAddr.c_str());
                         break;
                 }
-                log_e("Failed to add %s to whitelist with %s", sensorAddr.c_str(), typeStr);
+                #else
+                log_e("Failed to add %s to whitelist", sensorAddr.c_str());
+                #endif
             }
         }
-        
+            
         if (devicesAdded > 0) {
             log_i("BLE scan initialized with hardware whitelist filtering");
             log_i("Whitelist contains %d entries for %d devices", 
                   NimBLEDevice::getWhiteListCount(), devicesAdded);
             log_i("Only whitelisted devices will be processed, protecting against BLE flooding");
-            
+
             // Log efficiency info
             log_d("Hardware filtering active - non-whitelisted devices filtered at controller level");
             log_d("This prevents scan buffer overflow from high-traffic BLE environments");
@@ -562,16 +555,16 @@ void ATC_MiThermometer::detectAddressType(void)
     }
     
     LOG_ATC("Detecting address type for sensor: %s", _known_sensors[0].c_str());
-    
+
     // Test with random address
     {
         LOG_ATC("Testing RANDOM address type...");
         beginFiltered(false, true, AddressType::RANDOM_ONLY);
-        unsigned count = getData(5000);
+        getData(5000);  // <-- Just call without storing the result
         if (data[0].valid) {
             LOG_ATC("✓ Sensor responds to RANDOM address type");
         } else {
-            LOG_ATC("✗ Sensor does NOT respond to RANDOM address type (found %d devices)", count);
+            LOG_ATC("✗ Sensor does NOT respond to RANDOM address type");
         }
         resetData();
     }
@@ -582,15 +575,15 @@ void ATC_MiThermometer::detectAddressType(void)
     {
         LOG_ATC("Testing PUBLIC address type...");
         beginFiltered(false, true, AddressType::PUBLIC_ONLY);
-        unsigned count = getData(5000);
+        getData(5000);
         if (data[0].valid) {
             LOG_ATC("✓ Sensor responds to PUBLIC address type");
         } else {
-            LOG_ATC("✗ Sensor does NOT respond to PUBLIC address type (found %d devices)", count);
+            LOG_ATC("✗ Sensor does NOT respond to PUBLIC address type");
         }
         resetData();
     }
-    
+   
     LOG_ATC("Detection complete. Use the address type that worked.");
 }
 
@@ -602,6 +595,7 @@ unsigned ATC_MiThermometer::getData(uint32_t scanTime)
         scanCallbacksInstance->clearTimestamps();
     }
     
+
     // Configure scan parameters before each scan
     if (_useWhitelist && !_known_sensors.empty()) {
         // When using hardware whitelist, set the filter policy
@@ -609,14 +603,17 @@ unsigned ATC_MiThermometer::getData(uint32_t scanTime)
         LOG_ATC("Hardware whitelist filtering active");
         
         // Log whitelist status
+        #ifdef ATC_MITHERMOMETER_DEBUG
         size_t wlCount = NimBLEDevice::getWhiteListCount();
         LOG_ATC("Whitelist contains %d entries", wlCount);
         
         // Log whitelist contents (for debugging)
         for (size_t i = 0; i < wlCount && i < 5; i++) {  // Limit to 5 to avoid spam
-            NimBLEAddress addr = NimBLEDevice::getWhiteListAddress(i);
-            LOG_ATC("  Whitelist[%d]: %s", i, addr.toString().c_str());
+            LOG_ATC("  Whitelist[%d]: %s", i, NimBLEDevice::getWhiteListAddress(i).toString().c_str());
         }
+        #else
+        LOG_ATC("Whitelist contains %d entries", NimBLEDevice::getWhiteListCount());
+        #endif
     } else {
         // No filtering
         _pBLEScan->setFilterPolicy(BLE_HCI_SCAN_FILT_NO_WL);
@@ -788,10 +785,10 @@ unsigned ATC_MiThermometer::getData(uint32_t scanTime)
                     time_t deviceTime = device->getTimestamp();
                     LOG_ATC("Device timestamp (time_t): %ld", deviceTime);
                 #endif
-                
+
                 #if CONFIG_NIMBLE_CPP_ATT_VALUE_HRTIMESTAMP_ENABLED
-                    uint64_t deviceHrTime = device->getHrTimestamp();
-                    LOG_ATC("Device HR timestamp: %llu us (%.3f ms)", deviceHrTime, deviceHrTime / 1000.0);
+                    LOG_ATC("Device HR timestamp: %llu us (%.3f ms)", 
+                            device->getHrTimestamp(), device->getHrTimestamp() / 1000.0);
                 #endif
             }
             else
