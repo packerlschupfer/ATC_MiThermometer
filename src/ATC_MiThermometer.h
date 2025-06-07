@@ -43,6 +43,10 @@
 //          tempTriggerEvent &humiTriggerEvent
 // 20240425 Added device name
 // 20240426 Added parameter activeScan to begin()
+// 20250106 Added whitelist filtering support
+// 20250107 Updated for NimBLE v2.x compatibility
+// 20250126 Added flexible address type configuration
+// 20250127 Added hardware timestamp support for accurate beacon timing
 //
 // ToDo: 
 // -
@@ -61,6 +65,9 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
 #include <string>
+#include <vector>
+#include <map>
+#include <algorithm>
 
 
 // MiThermometer data struct / type
@@ -78,11 +85,23 @@ struct MiThData_S {
         bool 	    controlParameters;
         bool 	    tempTriggerEvent;
         bool 	    humiTriggerEvent;
-
+        
+        // Timing fields for accurate beacon interval tracking
+        uint32_t    timestamp_ms;    //!< Software timestamp in milliseconds
+        uint64_t    hw_timestamp_us; //!< Hardware timestamp in microseconds (if available)
 };
 
 typedef struct MiThData_S MiThData_t; //!< Shortcut for struct MiThData_S
 
+/*!
+  \brief BLE address type configuration
+*/
+enum class AddressType {
+    AUTO_DETECT = 0,  //!< Try both types (default, safe option)
+    RANDOM_ONLY = 1,  //!< Only add as random address
+    PUBLIC_ONLY = 2,  //!< Only add as public address
+    BOTH_TYPES = 3    //!< Force add both types
+};
 
 /*!
   \class ATC_MiThermometer
@@ -90,6 +109,9 @@ typedef struct MiThData_S MiThData_t; //!< Shortcut for struct MiThData_S
   \brief BLE ATC_MiThermometer thermometer/hygrometer sensor client
 */
 class ATC_MiThermometer {
+    // Forward declaration for friend class
+    friend class ScanCallbacks;
+    
     public:
         /*!
         \brief Constructor.
@@ -104,11 +126,34 @@ class ATC_MiThermometer {
         /*!
          * \brief Initialization.
          *
-         * \param activeScan Set to true for achtive scan, which uses more power, 
+         * \param activeScan Set to true for active scan, which uses more power, 
          *                   but get results faster. As a side effect, the device name
          *                   is received (most of the times).
          */
         void begin(bool activeScan = true);
+        
+        /*!
+         * \brief Initialization with whitelist filtering.
+         *
+         * \param activeScan    Set to true for active scan, which uses more power, 
+         *                      but get results faster. As a side effect, the device name
+         *                      is received (most of the times).
+         * \param useWhitelist  Set to true to enable hardware MAC address filtering
+         *                      using the known_sensors list as whitelist
+         */
+        void beginFiltered(bool activeScan = true, bool useWhitelist = false);
+        
+        /*!
+         * \brief Initialization with whitelist filtering and address type configuration.
+         *
+         * \param activeScan    Set to true for active scan, which uses more power, 
+         *                      but get results faster. As a side effect, the device name
+         *                      is received (most of the times).
+         * \param useWhitelist  Set to true to enable hardware MAC address filtering
+         *                      using the known_sensors list as whitelist
+         * \param addrType      Address type configuration (AUTO_DETECT, RANDOM_ONLY, PUBLIC_ONLY, BOTH_TYPES)
+         */
+        void beginFiltered(bool activeScan, bool useWhitelist, AddressType addrType);
         
         /*!
         \brief Delete results from BLEScan buffer to release memory.
@@ -120,7 +165,7 @@ class ATC_MiThermometer {
         /*!
         \brief Get data from sensors by running a BLE scan.
         
-        \param duration     Scan duration in seconds
+        \param duration     Scan duration in milliseconds (changed from seconds in v2.x)
         */                
         unsigned getData(uint32_t duration);
         
@@ -134,8 +179,74 @@ class ATC_MiThermometer {
         */
         std::vector<MiThData_t>  data;
         
+        /*!
+        \brief Check if whitelist filtering is enabled.
+        
+        \return true if whitelist filtering is active
+        */
+        bool isWhitelistEnabled(void) const { return _useWhitelist; };
+        
+        /*!
+        \brief Set the address type for sensors
+        
+        \param type Address type to use (AUTO_DETECT, RANDOM_ONLY, PUBLIC_ONLY, BOTH_TYPES)
+        */
+        void setAddressType(AddressType type) { _addressType = type; };
+        
+        /*!
+        \brief Get the current address type configuration
+        
+        \return Current address type setting
+        */
+        AddressType getAddressType(void) const { return _addressType; };
+        
+        /*!
+        \brief Detect address type for the first configured sensor (debug function)
+        
+        \note This function performs test scans to determine the actual address type
+        */
+        void detectAddressType(void);
+
+        /*!
+        * \brief Get the precise discovery timestamp for a device
+        * 
+        * \param index The index of the device in the known_sensors list
+        * \return The timestamp in milliseconds when the advertisement was discovered, or 0 if not found
+        */
+        uint32_t getDeviceDiscoveryTime(size_t index);
+        
+        /*!
+        \brief Get the hardware timestamp for when a device packet was received.
+        
+        \param index    Index in the known_sensors array
+        \return         Timestamp in microseconds, or 0 if not found
+        */
+        uint64_t getDeviceHardwareTimestamp(size_t index);
+        
+        /*!
+        \brief Check if hardware timestamps are enabled.
+        
+        \return         true if CONFIG_NIMBLE_CPP_ATT_VALUE_HRTIMESTAMP_ENABLED is set
+        */
+        static bool isHardwareTimestampEnabled() {
+            #if CONFIG_NIMBLE_CPP_ATT_VALUE_HRTIMESTAMP_ENABLED
+                return true;
+            #else
+                return false;
+            #endif
+        }
+
     protected:
         std::vector<std::string> _known_sensors;
         NimBLEScan*              _pBLEScan;
+        bool                     _useWhitelist = false;
+        AddressType              _addressType = AddressType::AUTO_DETECT;
+        
+        /*!
+        \brief Configure BLE whitelist with known sensor addresses.
+        
+        \note This is now a no-op as filtering is handled in beginFiltered()
+        */
+        void configureWhitelist(void);
 };
 #endif
